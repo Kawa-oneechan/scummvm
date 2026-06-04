@@ -82,6 +82,32 @@ void GfxText16::ClearChar(int16 chr) {
 	_paint16->eraseRect(rect);
 }
 
+//Kawa's test input: latin small o with macron, cyrillic small soft sign, latin small o with diaresis
+//UTF-8: C5 8D D1 8C C3 B6, 197 141 209 140 195 182, -59 -115 -47 -116 -61 -74
+//UTF-32: 014D 044C 00F6, 333 1100 246
+char* GfxText16::DecodeUtf8(const char *text, uint16 *codePoint, int16 *len) {
+	*codePoint = 0;
+	if ((*text & 0xF0) == 0xE0) {
+		*codePoint |= (*text++ & 0x0F) << 12;
+		*codePoint |= (*text++ & 0x3F) << 6;
+		*codePoint |= (*text++ & 0x3F);
+		if (len)
+			*len -= 3;
+	}
+	else if ((*text & 0xE0) == 0xC0) {
+		*codePoint |= (*text++ & 0x1F) << 6;
+		*codePoint |= (*text++ & 0x3F);
+		if (len)
+			*len -= 2;
+	}
+	else {
+		*codePoint = *text++; //Don't do the && 0x7F thing -- consider it a false positive.
+		if (len)
+			*len--;
+	}
+	return (char*)text;
+}
+
 // This internal function gets called as soon as a '|' is found in a text. It
 // will process the encountered code and set new font/set color.
 // Returns textcode character count.
@@ -202,6 +228,12 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 
 	for (;;) {
 		curChar = (*(const byte *)textPtr);
+		if (curChar > 127 && _font->isUnicode()) {
+			int16 len = 0;
+			textPtr = DecodeUtf8(textPtr--, &curChar, &len);
+			textPtr--; //adjust for later ++.
+			curCharCount += -len - 1; //-1 for later ++.
+		}
 		if (_font->isDoubleByte(curChar)) {
 			curChar |= (*(const byte *)(textPtr + 1)) << 8;
 		}
@@ -255,7 +287,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 
 		// go to next character
 		curCharCount++; textPtr++;
-		if (curChar > 0xFF) {
+		if (curChar > 0xFF && !_font->isUnicode()) {
 			// Double-Byte
 			curCharCount++; textPtr++;
 		 }
@@ -272,7 +304,7 @@ int16 GfxText16::GetLongest(const char *&textPtr, int16 maxWidth, GuiResourceId 
 
 	} else {
 		// Break without spaces found, we split the very first word - may also be Kanji/Japanese
-		if (curChar > 0xFF) {
+		if (curChar > 0xFF && !_font->isUnicode()) {
 			// current charracter is Japanese
 
 			// PC-9801 SCI actually added the last character, which shouldn't fit anymore, still onto the
@@ -350,8 +382,15 @@ void GfxText16::Width(const char *text, int16 from, int16 len, GuiResourceId org
 	GetFont();
 	if (_font) {
 		text += from;
-		while (len--) {
-			curChar = (*(const byte *)text++);
+		while (len) {
+			curChar = (*(const byte *)text);
+			if (curChar > 127 && _font->isUnicode()) {
+				text = DecodeUtf8(text--, &curChar, &len);
+			}
+			else {
+				text++;
+				len--;
+			}
 			if (_font->isDoubleByte(curChar)) {
 				curChar |= (*(const byte *)text++) << 8;
 				len--;
@@ -456,8 +495,15 @@ void GfxText16::Draw(const char *text, int16 from, int16 len, GuiResourceId orgF
 	rect.top = _ports->_curPort->curTop;
 	rect.bottom = rect.top + _ports->_curPort->fontHeight;
 	text += from;
-	while (len--) {
-		curChar = (*(const byte *)text++);
+	while (len) {
+		curChar = (*(const byte *)text);
+		if (curChar > 127 && _font->isUnicode()) {
+			text = DecodeUtf8(text--, &curChar, &len);
+		}
+		else {
+			text++;
+			len--;
+		}
 		if (_font->isDoubleByte(curChar)) {
 			curChar |= (*(const byte *)text++) << 8;
 			len--;

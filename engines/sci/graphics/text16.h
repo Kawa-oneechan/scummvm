@@ -79,6 +79,7 @@ public:
 private:
 	void init();
 	bool SwitchToFont900OnSjis(const char *text, uint16 languageSplitter);
+	char* DecodeUtf8(const char *text, uint16 *codePoint, int16 *len);
 
 	GfxCache *_cache;
 	GfxPorts *_ports;
